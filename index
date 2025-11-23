@@ -1,0 +1,78 @@
+# server.py
+from flask import Flask, request, jsonify
+import requests
+import os
+
+app = Flask(__name__)
+BOT_TOKEN = os.getenv("TG_BOT_TOKEN")
+OPENAI_KEY = os.getenv("OPENAI_API_KEY")
+AIRTABLE_API_KEY = os.getenv("AIRTABLE_API_KEY")
+AIRTABLE_BASE = "appXXXXXXXX"
+AIRTABLE_TABLE = "Invoices"
+
+def get_invoice_by_token(token):
+    # ejemplo con Airtable simple: buscar registro con campo invoice_token == token
+    url = f"https://api.airtable.com/v0/{AIRTABLE_BASE}/{AIRTABLE_TABLE}"
+    headers = {"Authorization": f"Bearer {AIRTABLE_API_KEY}"}
+    params = {"filterByFormula": f"{{invoice_token}} = '{token}'"}
+    r = requests.get(url, headers=headers, params=params)
+    data = r.json()
+    if data.get("records"):
+        return data["records"][0]["fields"]
+    return None
+
+def ask_openai(prompt):
+    url = "https://api.openai.com/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {OPENAI_KEY}", "Content-Type": "application/json"}
+    body = {
+      "model": "gpt-4o-mini", # ajusta segun tu cuenta
+      "messages": [{"role":"system","content":"Eres un asistente de facturación amigable que responde en español."},
+                   {"role":"user","content": prompt}],
+      "max_tokens": 400
+    }
+    r = requests.post(url, headers=headers, json=body)
+    return r.json()
+
+@app.route("/telegram_webhook", methods=["POST"])
+def telegram_webhook():
+    update = request.json
+    if "message" not in update: return jsonify({}), 200
+
+    msg = update["message"]
+    chat_id = msg["chat"]["id"]
+    text = msg.get("text","")
+
+    # maneja /start TOKEN
+    if text.startswith("/start"):
+        parts = text.split()
+        token = parts[1] if len(parts)>1 else None
+        if token:
+            inv = get_invoice_by_token(token)
+            if not inv:
+                send_message(chat_id, "No encuentro la factura asociada. Por favor, sube la factura o contacta soporte.")
+                return jsonify({}), 200
+            # arma prompt para OpenAI:
+            p = f"""Tengo la factura con estos datos: 
+Nº: {inv.get('invoice_number','-')}, Cliente: {inv.get('cliente_nombre','-')}, 
+Total: {inv.get('monto_total','-')}, IVA: {inv.get('iva','-')}, Otros impuestos: {inv.get('otros_impuestos','-')}, Fecha: {inv.get('fecha','-')}.
+Responde en español, primero un resumen breve y luego ofrece opciones para preguntar: 1) ¿Por qué el valor de la factura es ese?, 2) ¿Cuánto se pagó en IVA?, 3) ¿Qué otros impuestos incluye?
+"""
+            resp = ask_openai(p)
+            answer = resp["choices"][0]["message"]["content"]
+            send_message(chat_id, answer)
+            return jsonify({}), 200
+
+    # si el usuario escribe preguntas libres
+    if text:
+        # puedes buscar si chat_id ya tiene asociado un invoice_token en tu DB. Si no, pedir que use el botón web o suba factura.
+        send_message(chat_id, "Por favor inicia desde el botón en la web para que pueda asociar tu factura, o sube la factura aquí.")
+        return jsonify({}), 200
+
+    return jsonify({}), 200
+
+def send_message(chat_id, text):
+    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    requests.post(url, json={"chat_id":chat_id, "text":text, "parse_mode":"HTML"})
+
+if __name__ == "__main__":
+    app.run(port=5000)
