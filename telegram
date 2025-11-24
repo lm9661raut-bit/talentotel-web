@@ -3,7 +3,7 @@ import axios from "axios";
 export default async function handler(req, res) {
   if (req.method === "POST") {
     try {
-      const TELEGRAM_BOT_TOKEN = "TU_BOT_TOKEN_AQUI";
+      const TELEGRAM_BOT_TOKEN = "8369522135:AAG2gbvAhjmbpTXPktrFQLWbKUN_sg_2PEQ";
       const message = req.body.message;
 
       if (message && message.document) {
