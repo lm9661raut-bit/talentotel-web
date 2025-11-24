@@ -1,0 +1,37 @@
+import axios from "axios";
+
+export default async function handler(req, res) {
+  if (req.method === "POST") {
+    try {
+      const TELEGRAM_BOT_TOKEN = "8369522135:AAG2gbvAhjmbpTXPktrFQLWbKUN_sg_2PEQ";
+      const message = req.body.message;
+
+      if (message && message.document) {
+        const file_id = message.document.file_id;
+        const file_name = message.document.file_name;
+
+        // Obtener file_path de Telegram
+        const getFileUrl = `https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getFile?file_id=${file_id}`;
+        const response = await axios.get(getFileUrl);
+        const file_path = response.data.result.file_path;
+
+        // Retornar JSON con la info
+        return res.status(200).json({
+          ok: true,
+          file_name,
+          file_id,
+          file_path,
+          download_url: `https://api.telegram.org/file/bot${TELEGRAM_BOT_TOKEN}/${file_path}`
+        });
+      }
+
+      res.status(200).json({ ok: false, message: "No se envió un documento." });
+
+    } catch (error) {
+      console.error("Error al procesar Telegram:", error);
+      res.status(500).json({ ok: false, error: error.message });
+    }
+  } else {
+    res.status(405).json({ ok: false, message: "Método no permitido" });
+  }
+}
